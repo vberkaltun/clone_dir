@@ -17,6 +17,7 @@ import voluptuous as vol
 
 from homeassistant.components import (
     binary_sensor,
+    input_number,
     media_player,
     persistent_notification,
     sensor,
