@@ -20,7 +20,6 @@ from homeassistant.components import (
     media_player,
     persistent_notification,
     sensor,
-    number
 )
 from homeassistant.components.camera import DOMAIN as CAMERA_DOMAIN
 from homeassistant.components.event import DOMAIN as EVENT_DOMAIN
@@ -228,15 +227,7 @@ SWITCH_TYPE_SCHEMA = BASIC_INFO_SCHEMA.extend(
             ),
         ),
         vol.Optional(CONF_LINKED_IRRIGATION_TIMER): cv.entity_domain(
-            number.DOMAIN
-        ),
-    }
-)
-
-VALVE_SCHEMA = BASIC_INFO_SCHEMA.extend(
-    {
-        vol.Optional(CONF_LINKED_IRRIGATION_TIMER): cv.entity_domain(
-            number.DOMAIN
+            input_number.DOMAIN
         ),
     }
 )
@@ -324,8 +315,7 @@ def validate_entity_config(values: dict) -> dict[str, dict]:
 
         elif domain == "sensor":
             config = SENSOR_SCHEMA(config)
-        elif domain == "valve":
-            config = VALVE_SCHEMA(config)
+
         else:
             config = BASIC_INFO_SCHEMA(config)
 

@@ -48,16 +48,16 @@ from .const import (
     CHAR_ON,
     CHAR_OUTLET_IN_USE,
     CHAR_VALVE_TYPE,
-    SERV_OUTLET,
-    SERV_SWITCH,
-    SERV_VALVE,
     CHAR_REMAINING_DURATION,
     CHAR_SET_DURATION,
     CONF_LINKED_IRRIGATION_TIMER,
+    SERV_OUTLET,
+    SERV_SWITCH,
+    SERV_VALVE,
     TYPE_FAUCET,
     TYPE_SHOWER,
     TYPE_SPRINKLER,
-    TYPE_VALVE
+    TYPE_VALVE,
 )
 from .util import cleanup_name_for_homekit
 
@@ -243,18 +243,16 @@ class ValveBase(HomeAccessory):
         self.open_states = open_states
         self.on_service = on_service
         self.off_service = off_service
-        self.remaining_time_entity_id = self.config.get(CONF_LINKED_IRRIGATION_TIMER)
 
         self.irrigation_found = False
-        if self.remaining_time_entity_id:
-            state = self.hass.states.get(self.remaining_time_entity_id)
-            if state is not None:
-                self.irrigation_found = True
-
         self.chars = []
 
-        if self.irrigation_found:
-            self.chars.extend([CHAR_REMAINING_DURATION, CHAR_SET_DURATION])        
+        self.remaining_time_entity_id = self.config.get(CONF_LINKED_IRRIGATION_TIMER)
+        if self.remaining_time_entity_id:
+            has_Entity = self.hass.states.get(self.remaining_time_entity_id)
+            if has_Entity is not None:
+                self.chars.extend([CHAR_REMAINING_DURATION, CHAR_SET_DURATION])        
+                self.irrigation_found = True
 
         serv_valve = self.add_preload_service(SERV_VALVE, self.chars)
         self.char_active = serv_valve.configure_char(
