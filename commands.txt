@@ -1,0 +1,10 @@
+docker exec -it homeassistant /bin/bash
+
+sudo rm -rf clone_dir
+git clone https://github.com/vberkaltun/clone_dir.git
+
+cd /usr/src/homeassistant/homeassistant
+
+cp -i clone_dir/const.py /usr/src/homeassistant/homeassistant/components/homekit/
+cp -i clone_dir/type_switches.py /usr/src/homeassistant/homeassistant/components/homekit/
+cp -i clone_dir/util.py /usr/src/homeassistant/homeassistant/components/homekit/
