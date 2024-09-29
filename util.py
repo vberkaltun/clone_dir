@@ -18,6 +18,7 @@ import voluptuous as vol
 from homeassistant.components import (
     binary_sensor,
     input_number,
+    timer,
     media_player,
     persistent_notification,
     sensor,
@@ -66,7 +67,7 @@ from .const import (
     CONF_LINKED_HUMIDITY_SENSOR,
     CONF_LINKED_MOTION_SENSOR,
     CONF_LINKED_OBSTRUCTION_SENSOR,
-    CONF_LINKED_IRRIGATION_TIMER,
+    CONF_LINKED_TIMER,
     CONF_LOW_BATTERY_THRESHOLD,
     CONF_MAX_FPS,
     CONF_MAX_HEIGHT,
@@ -227,8 +228,8 @@ SWITCH_TYPE_SCHEMA = BASIC_INFO_SCHEMA.extend(
                 )
             ),
         ),
-        vol.Optional(CONF_LINKED_IRRIGATION_TIMER): cv.entity_domain(
-            input_number.DOMAIN
+        vol.Optional(CONF_LINKED_TIMER): cv.entity_domain(
+            timer.DOMAIN
         ),
     }
 )

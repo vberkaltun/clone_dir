@@ -17,6 +17,12 @@ from pyhap.const import (
 from homeassistant.components import button, input_button
 from homeassistant.components.input_select import ATTR_OPTIONS, SERVICE_SELECT_OPTION
 from homeassistant.components.switch import DOMAIN
+from homeassistant.components.timer import (
+    ATTR_DURATION,
+    CONF_DURATION,
+    SERVICE_CHANGE,
+    Timer,
+)
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
     SERVICE_RETURN_TO_BASE,
@@ -50,7 +56,7 @@ from .const import (
     CHAR_VALVE_TYPE,
     CHAR_REMAINING_DURATION,
     CHAR_SET_DURATION,
-    CONF_LINKED_IRRIGATION_TIMER,
+    CONF_LINKED_TIMER,
     SERV_OUTLET,
     SERV_SWITCH,
     SERV_VALVE,
@@ -244,36 +250,34 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
-        self.irrigation_found = False
-        self.chars = []
+        self.characteristics = []
+        self.linked_timer = self.config.get(CONF_LINKED_TIMER)
+        if self.linked_timer:
+            self.characteristics.extend([CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
-        self.remaining_time_entity_id = self.config.get(CONF_LINKED_IRRIGATION_TIMER)
-        if self.remaining_time_entity_id:
-            has_Entity = self.hass.states.get(self.remaining_time_entity_id)
-            if has_Entity is not None:
-                self.chars.extend([CHAR_REMAINING_DURATION, CHAR_SET_DURATION])        
-                self.irrigation_found = True
-
-        serv_valve = self.add_preload_service(SERV_VALVE, self.chars)
+        serv_valve = self.add_preload_service(SERV_VALVE, self.characteristics)
         self.char_active = serv_valve.configure_char(
-            CHAR_ACTIVE, value=False, setter_callback=self.set_state
+            CHAR_ACTIVE,
+            value=False,
+            setter_callback=self.set_state
         )
         self.char_in_use = serv_valve.configure_char(CHAR_IN_USE, value=False)
         self.char_valve_type = serv_valve.configure_char(
-            CHAR_VALVE_TYPE, value=VALVE_TYPE[valve_type].valve_type
+            CHAR_VALVE_TYPE,
+            value=VALVE_TYPE[valve_type].valve_type
         )
-        
-        if self.irrigation_found:
-            self.char_remaining_duration = serv_valve.configure_char(
-                CHAR_REMAINING_DURATION,
-                getter_callback=self.get_remaining_duration,
-            )
+
+        if self.linked_timer:
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=300,
-                getter_callback=self.get_duration,
                 setter_callback=self.set_duration
-            )
+            )  
+            self.char_remaining_duration = serv_valve.configure_char(
+                CHAR_REMAINING_DURATION,
+                value=0,
+                getter_callback=self.get_remaining_duration
+            )  
         
         # Set the state so it is in sync on initial
         # GET to avoid an event storm after homekit startup
@@ -282,11 +286,22 @@ class ValveBase(HomeAccessory):
     def set_state(self, value: bool) -> None:
         """Move value state to value if call came from HomeKit."""
         _LOGGER.debug("%s: Set switch state to %s", self.entity_id, value)
-        if value and self.irrigation_found:
-            self.set_duration(self.char_set_duration.value)
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
         self.async_call_service(self.domain, service, params)
+
+    def set_duration(self, value: int) -> None:
+        """Set duration if call came from HomeKit."""
+        config_duration = { CONF_DURATION: "00:05:12" }
+        _LOGGER.debug("%s: Set duration to 00:05:12", self.entity_id)
+        self.hass.states.get(self.linked_timer).async_update_config(config_duration)
+
+    def get_remaining_duration(self) -> int:
+        """Get remaining duration from Home Assistant."""
+        attribute_duration = self.hass.states.get(self.linked_timer).extra_state_attributes[ATTR_DURATION]
+        remaining_duration = int(attr_duration.split(":")[1]) * 60
+        _LOGGER.debug("Remaining duration for %s is %s", self.linked_timer, remaining_duration)
+        return remaining_duration
 
     @callback
     def async_update_state(self, new_state: State) -> None:
@@ -296,36 +311,6 @@ class ValveBase(HomeAccessory):
         self.char_active.set_value(current_state)
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
-
-    def set_duration(self, value: int) -> None:
-        """Set the duration for which the valve should remain open."""
-        _LOGGER.debug("%s: Set duration to %s", self.entity_id, value)
-        # Update the remaining time entity with the new duration
-        self.char_remaining_duration.set_value(value)
-        self.hass.async_create_task(
-            self.hass.services.async_call(
-                "input_number",  # Assuming you're using an number entity
-                "set_value",
-                {
-                    ATTR_ENTITY_ID: self.remaining_time_entity_id,
-                    "value": value / 60.0, # Assuming you're keeping track in minutes
-                },
-            )
-        )
-
-    def get_duration(self) -> int:
-        """Get the duration from Home Assistant."""
-        duration_state = self.char_remaining_duration.get_value(value)
-        duration = float(duration_state.state) * 60
-        _LOGGER.debug("Duration for %s is %s", self.char_remaining_duration, duration)
-        return remaining_time
-
-    def get_remaining_duration(self) -> int:
-        """Get the remaining duration from Home Assistant."""
-        remaining_time_state = self.hass.states.get(self.remaining_time_entity_id)
-        remaining_time = float(remaining_time_state.state) * 60
-        _LOGGER.debug("Remaining time for %s is %s", self.remaining_time_entity_id, remaining_time)
-        return remaining_time
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
