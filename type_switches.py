@@ -271,6 +271,8 @@ class ValveBase(HomeAccessory):
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=300,
+                getter_callback=self.get_duration,
+                setter_callback=self.set_duration
             )
         
         # Set the state so it is in sync on initial
@@ -310,6 +312,13 @@ class ValveBase(HomeAccessory):
                 },
             )
         )
+
+    def get_duration(self) -> int:
+        """Get the duration from Home Assistant."""
+        duration_state = self.char_remaining_duration.get_value(value)
+        duration = float(duration_state.state) * 60
+        _LOGGER.debug("Duration for %s is %s", self.char_remaining_duration, duration)
+        return remaining_time
 
     def get_remaining_duration(self) -> int:
         """Get the remaining duration from Home Assistant."""
