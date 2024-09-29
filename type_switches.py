@@ -265,10 +265,12 @@ class ValveBase(HomeAccessory):
         
         if self.irrigation_found:
             self.char_remaining_duration = serv_valve.configure_char(
-                CHAR_REMAINING_DURATION, getter_callback=self.get_remaining_duration
+                CHAR_REMAINING_DURATION,
+                getter_callback=self.get_remaining_duration,
             )
             self.char_set_duration = serv_valve.configure_char(
-                CHAR_SET_DURATION, value=60
+                CHAR_SET_DURATION,
+                value=300,
             )
         
         # Set the state so it is in sync on initial
@@ -300,7 +302,7 @@ class ValveBase(HomeAccessory):
         self.char_remaining_duration.set_value(value)
         self.hass.async_create_task(
             self.hass.services.async_call(
-                "number",  # Assuming you're using an number entity
+                "input_number",  # Assuming you're using an number entity
                 "set_value",
                 {
                     ATTR_ENTITY_ID: self.remaining_time_entity_id,
