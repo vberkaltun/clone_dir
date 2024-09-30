@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from functools import partial
 import logging
 from typing import Any, Final, NamedTuple
 
@@ -249,7 +250,7 @@ class ValveBase(HomeAccessory):
             _LOGGER.debug("A linked device is found")
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
-            timer_initial_seconds = 300
+            timer_initial_seconds = 60
             self.timer_instance = IdleTimer(
                 self.hass,
                 timer_initial_seconds,
@@ -258,7 +259,6 @@ class ValveBase(HomeAccessory):
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=timer_initial_seconds,
-                getter_callback=self.get_duration,
                 setter_callback=self.set_duration,
             )
             self.char_remaining_duration = serv_valve.configure_char(
@@ -300,28 +300,25 @@ class ValveBase(HomeAccessory):
             self.timer_end_callback)
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
 
-    def get_duration(self) -> int:
-        """Get duration from Home Assistant."""
-        _LOGGER.debug("Duration for %s is %s", self.entity_id, self.timer_instance.timeout)
-        return self.timer_instance.timeout
-
     def get_remaining_duration(self) -> int:
         """Get remaining duration from Home Assistant."""
-        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, self.timer_instance.remaining)
+        _LOGGER.debug("Remaining duration for %s is %s and total is %s", self.entity_id, self.timer_instance.remaining, self.timer_instance.timeout)
         return self.timer_instance.remaining
 
-    def timer_end_callback(self) -> None:
+    async def timer_end_callback(self) -> None:
         """Initialize a Valve accessory object."""
-        _LOGGER.debug("%s: Set switch state to %s")
+        _LOGGER.debug("Timer callback is raised")
         self.char_active.set_value(0)
         self.char_in_use.set_value(0)
 
     def handle_timer(self, state: bool)  -> None:
         """Update timer state."""
         if state:
+            _LOGGER.debug("Timer started")
             self.timer_instance.start()
         elif self.timer_instance is not None:
-            self.timer_instance.clear()
+            _LOGGER.debug("Timer cleared")
+            self.timer_instance.awake()
 
     @callback
     def async_update_state(self, new_state: State) -> None:

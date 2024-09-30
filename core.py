@@ -238,7 +238,8 @@ class IdleTimer:
     @property
     def remaining(self) -> int:
         """Return remaining duration for the idle timeout callback."""
-        return time.time() - self._remaining if self._remaining is not None else 0
+        _LOGGER.info("Current cycle at %s", time.time())
+        return self._timeout - int(time.time() - self._remaining) if self._remaining is not None else self._timeout
 
     def __init__(
         self,
@@ -260,6 +261,7 @@ class IdleTimer:
         if self._unsub is None:
             self._unsub = async_call_later(self._hass, self._timeout, self.fire)
             self._remaining = time.time()
+            _LOGGER.info("Started at %s", self._remaining)
 
     def awake(self) -> None:
         """Keep the idle time alive by resetting the timeout."""
