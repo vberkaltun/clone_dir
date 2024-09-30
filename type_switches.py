@@ -260,7 +260,7 @@ class ValveBase(HomeAccessory):
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             timer_initial_seconds = 300
-            timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
+            # timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
             # self.timer_instance = Timer.from_hass({ CONF_DURATION: timer_initial_string }, self.hass)
 
             self.char_set_duration = serv_valve.configure_char(
@@ -300,11 +300,21 @@ class ValveBase(HomeAccessory):
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
 
-        duration_string = _format_timedelta(timedelta(seconds=value))
+        hours, remainder = divmod(value, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        duration_string = f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
         duration_params = {ATTR_ENTITY_ID: self.timer_instance_entity, "value": duration_string}
 
         _LOGGER.debug("Duration for %s is set to %s", self.timer_instance_entity, duration_string)
-        self.async_call_service(self.timer_instance_entity, SERVICE_CHANGE, duration_params)
+        # self.async_call_service(self.timer_instance_entity, SERVICE_CHANGE, duration_params)
+        self.hass.services.async_call(
+            "timer",  # Assuming you're using an number entity
+            SERVICE_CHANGE,
+            {
+                ATTR_ENTITY_ID: self.timer_instance_entity,
+                "value": duration_string,
+            },
+        )
 
     def get_duration(self, attribute: str) -> int:
         """Get duration from Home Assistant."""
