@@ -219,6 +219,14 @@ class Timer(collection.CollectionEntity, RestoreEntity):
         self.editable = False
 
     @classmethod
+    def from_hass(cls, config: ConfigType, hass: HomeAssistant) -> Self:
+        """Return entity instance initialized from storage."""
+        timer = cls(config)
+        timer.entity_id = ENTITY_ID_FORMAT.format("yetermk")
+        timer.hass = hass
+        return timer
+
+    @classmethod
     def from_storage(cls, config: ConfigType) -> Self:
         """Return entity instance initialized from storage."""
         timer = cls(config)

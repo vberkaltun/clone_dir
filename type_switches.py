@@ -27,7 +27,6 @@ from homeassistant.components.timer import (
     SERVICE_CHANGE,
     Timer,
     _format_timedelta,
-    async_setup,
 )
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
@@ -256,13 +255,13 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
-        if self.config.get(CONF_LINKED_TIMER):
+        self.timer_instance_entity = self.config.get(CONF_LINKED_TIMER)
+        if self.timer_instance_entity:
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             timer_initial_seconds = 300
             timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
-            self.timer_instance = Timer({ CONF_DURATION: timer_initial_string })
-            async_setup(self.hass, {})
+            # self.timer_instance = Timer.from_hass({ CONF_DURATION: timer_initial_string }, self.hass)
 
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
@@ -299,22 +298,25 @@ class ValveBase(HomeAccessory):
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
         self.async_call_service(self.domain, service, params)
-        if self.timer_instance is not None:
-            self.hass.async_create_task(
-                self.timer_instance.async_start() if value else self.timer_instance.async_cancel()
-            )
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
+
         duration_string = _format_timedelta(timedelta(seconds=value))
-        _LOGGER.debug("Duration for %s is set to %s", self.timer_instance, duration_string)
-        self.timer_instance.async_update_config({ CONF_DURATION: duration_string })
+        duration_params = {ATTR_ENTITY_ID: self.timer_instance_entity, "value": duration_string}
+
+        _LOGGER.debug("Duration for %s is set to %s", self.timer_instance_entity, duration_string)
+        self.async_call_service(self.timer_instance_entity, SERVICE_CHANGE, duration_params)
 
     def get_duration(self, attribute: str) -> int:
         """Get duration from Home Assistant."""
-        duration_raw: str = self.timer_instance.extra_state_attributes.get(attribute)
-        duration_seconds = int(duration_raw.split(":")[1]) * 60 if duration_raw else 0
-        _LOGGER.debug("%s for %s is %s", attribute.capitalize(), self.timer_instance, duration_seconds)
+        
+        duration_string: str = self.hass.states.get(self.timer_instance_entity).attributes.get("extra_state_attributes")
+        _LOGGER.debug("Bu nedir mk %s", duration_string)
+
+        duration_seconds = int(duration_string.split(":")[1]) * 60 if duration_string else 0
+
+        _LOGGER.debug("%s for %s is %s", attribute.capitalize(), self.timer_instance_entity, duration_seconds)
         return duration_seconds
 
     @callback
@@ -325,10 +327,6 @@ class ValveBase(HomeAccessory):
         self.char_active.set_value(current_state)
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
-        if self.timer_instance is not None:
-            self.hass.async_create_task(
-                self.timer_instance.async_start() if current_state else self.timer_instance.async_cancel()
-            )
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
