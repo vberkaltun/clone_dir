@@ -27,6 +27,7 @@ from homeassistant.components.timer import (
     SERVICE_CHANGE,
     Timer,
     _format_timedelta,
+    async_setup,
 )
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
@@ -255,26 +256,14 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
-        self.characteristics = []
         if self.config.get(CONF_LINKED_TIMER):
+            serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
+
             timer_initial_seconds = 300
             timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
             self.timer_instance = Timer({ CONF_DURATION: timer_initial_string })
-            self.characteristics.extend([CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
+            async_setup(self.hass, {})
 
-        serv_valve = self.add_preload_service(SERV_VALVE, self.characteristics)
-        self.char_active = serv_valve.configure_char(
-            CHAR_ACTIVE,
-            value=False,
-            setter_callback=self.set_state
-        )
-        self.char_in_use = serv_valve.configure_char(CHAR_IN_USE, value=False)
-        self.char_valve_type = serv_valve.configure_char(
-            CHAR_VALVE_TYPE,
-            value=VALVE_TYPE[valve_type].valve_type
-        )
-
-        if self.timer_instance:
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=timer_initial_seconds,
@@ -285,7 +274,20 @@ class ValveBase(HomeAccessory):
                 CHAR_REMAINING_DURATION,
                 value=0,
                 getter_callback=partial(self.get_duration, ATTR_REMAINING),
-            )  
+            )
+        else:
+            serv_valve = self.add_preload_service(SERV_VALVE)
+
+        self.char_active = serv_valve.configure_char(
+            CHAR_ACTIVE,
+            value=False,
+            setter_callback=self.set_state
+        )
+        self.char_in_use = serv_valve.configure_char(CHAR_IN_USE, value=False)
+        self.char_valve_type = serv_valve.configure_char(
+            CHAR_VALVE_TYPE,
+            value=VALVE_TYPE[valve_type].valve_type
+        ) 
         
         # Set the state so it is in sync on initial
         # GET to avoid an event storm after homekit startup
@@ -297,9 +299,10 @@ class ValveBase(HomeAccessory):
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
         self.async_call_service(self.domain, service, params)
-
-        if self.timer_instance:
-            self.timer_instance.async_start() if value else self.timer_instance.async_cancel()
+        if self.timer_instance is not None:
+            self.hass.async_create_task(
+                self.timer_instance.async_start() if value else self.timer_instance.async_cancel()
+            )
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
@@ -322,6 +325,10 @@ class ValveBase(HomeAccessory):
         self.char_active.set_value(current_state)
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
+        if self.timer_instance is not None:
+            self.hass.async_create_task(
+                self.timer_instance.async_start() if current_state else self.timer_instance.async_cancel()
+            )
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
