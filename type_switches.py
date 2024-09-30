@@ -3,8 +3,10 @@
 from __future__ import annotations
 
 import logging
+
 from typing import Any, Final, NamedTuple
 from functools import partial
+from datetime import timedelta
 
 from pyhap.characteristic import Characteristic
 from pyhap.const import (
@@ -24,6 +26,7 @@ from homeassistant.components.timer import (
     CONF_DURATION,
     SERVICE_CHANGE,
     Timer,
+    _format_timedelta,
 )
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
@@ -254,7 +257,9 @@ class ValveBase(HomeAccessory):
 
         self.characteristics = []
         if self.config.get(CONF_LINKED_TIMER):
-            self.timer_instance = Timer({ CONF_DURATION: "00:01:00" })
+            timer_initial_seconds = 300
+            timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
+            self.timer_instance = Timer({ CONF_DURATION: timer_initial_string })
             self.characteristics.extend([CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
         serv_valve = self.add_preload_service(SERV_VALVE, self.characteristics)
@@ -272,7 +277,7 @@ class ValveBase(HomeAccessory):
         if self.timer_instance:
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=300,
+                value=timer_initial_seconds,
                 getter_callback=partial(self.get_duration, ATTR_DURATION),
                 setter_callback=self.set_duration,
             )  
@@ -293,23 +298,19 @@ class ValveBase(HomeAccessory):
         service = self.on_service if value else self.off_service
         self.async_call_service(self.domain, service, params)
 
+        if self.timer_instance:
+            self.timer_instance.async_start() if value else self.timer_instance.async_cancel()
+
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
-
-        # See: Timer._format_timedelta()
-        hours, remainder = divmod(value, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        duration_string = f"{int(hours)}:{int(minutes):02}:{int(seconds):02}" 
-
+        duration_string = _format_timedelta(timedelta(seconds=value))
         _LOGGER.debug("Duration for %s is set to %s", self.timer_instance, duration_string)
         self.timer_instance.async_update_config({ CONF_DURATION: duration_string })
 
     def get_duration(self, attribute: str) -> int:
         """Get duration from Home Assistant."""
-
         duration_raw: str = self.timer_instance.extra_state_attributes.get(attribute)
         duration_seconds = int(duration_raw.split(":")[1]) * 60 if duration_raw else 0
-
         _LOGGER.debug("%s for %s is %s", attribute.capitalize(), self.timer_instance, duration_seconds)
         return duration_seconds
 
