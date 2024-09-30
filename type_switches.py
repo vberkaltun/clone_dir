@@ -265,13 +265,11 @@ class ValveBase(HomeAccessory):
 
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=timer_initial_seconds,
                 getter_callback=partial(self.get_duration, ATTR_DURATION),
                 setter_callback=self.set_duration,
             )  
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                value=0,
                 getter_callback=partial(self.get_duration, ATTR_REMAINING),
             )
         else:
