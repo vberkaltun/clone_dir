@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import logging
-
 from typing import Any, Final, NamedTuple
-from functools import partial
-from datetime import timedelta
 
 from pyhap.characteristic import Characteristic
 from pyhap.const import (
@@ -19,15 +16,8 @@ from pyhap.const import (
 
 from homeassistant.components import button, input_button
 from homeassistant.components.input_select import ATTR_OPTIONS, SERVICE_SELECT_OPTION
+from homeassistant.components.stream import IdleTimer
 from homeassistant.components.switch import DOMAIN
-from homeassistant.components.timer import (
-    ATTR_DURATION,
-    ATTR_REMAINING,
-    CONF_DURATION,
-    SERVICE_CHANGE,
-    Timer,
-    _format_timedelta,
-)
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
     SERVICE_RETURN_TO_BASE,
@@ -58,9 +48,9 @@ from .const import (
     CHAR_NAME,
     CHAR_ON,
     CHAR_OUTLET_IN_USE,
-    CHAR_VALVE_TYPE,
     CHAR_REMAINING_DURATION,
     CHAR_SET_DURATION,
+    CHAR_VALVE_TYPE,
     CONF_LINKED_TIMER,
     SERV_OUTLET,
     SERV_SWITCH,
@@ -255,22 +245,25 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
-        self.timer_instance_entity = self.config.get(CONF_LINKED_TIMER)
-        if self.timer_instance_entity:
+        if  self.config.get(CONF_LINKED_TIMER):
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             timer_initial_seconds = 300
-            # timer_initial_string = _format_timedelta(timedelta(seconds=timer_initial_seconds))
-            # self.timer_instance = Timer.from_hass({ CONF_DURATION: timer_initial_string }, self.hass)
+            self.timer_instance = IdleTimer(
+                self.hass,
+                timer_initial_seconds,
+                self.timer_end_callback)
 
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                getter_callback=partial(self.get_duration, ATTR_DURATION),
+                value=timer_initial_seconds,
+                getter_callback=self.get_duration,
                 setter_callback=self.set_duration,
-            )  
+            )
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                getter_callback=partial(self.get_duration, ATTR_REMAINING),
+                value=timer_initial_seconds,
+                getter_callback=self.get_remaining_duration,
             )
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
@@ -284,8 +277,8 @@ class ValveBase(HomeAccessory):
         self.char_valve_type = serv_valve.configure_char(
             CHAR_VALVE_TYPE,
             value=VALVE_TYPE[valve_type].valve_type
-        ) 
-        
+        )
+
         # Set the state so it is in sync on initial
         # GET to avoid an event storm after homekit startup
         self.async_update_state(state)
@@ -296,36 +289,38 @@ class ValveBase(HomeAccessory):
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
         self.async_call_service(self.domain, service, params)
+        self.handle_timer(value)
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
+        self.timer_instance = IdleTimer(
+            self.hass,
+            value,
+            self.timer_end_callback)
+        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
 
-        hours, remainder = divmod(value, 3600)
-        minutes, seconds = divmod(remainder, 60)
-        duration_string = f"{int(hours)}:{int(minutes):02}:{int(seconds):02}"
-        duration_params = {ATTR_ENTITY_ID: self.timer_instance_entity, "value": duration_string}
-
-        _LOGGER.debug("Duration for %s is set to %s", self.timer_instance_entity, duration_string)
-        # self.async_call_service(self.timer_instance_entity, SERVICE_CHANGE, duration_params)
-        self.hass.services.async_call(
-            "timer",  # Assuming you're using an number entity
-            SERVICE_CHANGE,
-            {
-                ATTR_ENTITY_ID: self.timer_instance_entity,
-                "value": duration_string,
-            },
-        )
-
-    def get_duration(self, attribute: str) -> int:
+    def get_duration(self) -> int:
         """Get duration from Home Assistant."""
-        
-        duration_string: str = self.hass.states.get(self.timer_instance_entity).attributes.get("extra_state_attributes")
-        _LOGGER.debug("Bu nedir mk %s", duration_string)
+        _LOGGER.debug("Duration for %s is %s", self.entity_id, self.timer_instance.timeout)
+        return self.timer_instance.timeout
 
-        duration_seconds = int(duration_string.split(":")[1]) * 60 if duration_string else 0
+    def get_remaining_duration(self) -> int:
+        """Get remaining duration from Home Assistant."""
+        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, self.timer_instance.remaining)
+        return self.timer_instance.remaining
 
-        _LOGGER.debug("%s for %s is %s", attribute.capitalize(), self.timer_instance_entity, duration_seconds)
-        return duration_seconds
+    def timer_end_callback(self) -> None:
+        """Initialize a Valve accessory object."""
+        _LOGGER.debug("%s: Set switch state to %s")
+        self.char_active.set_value(0)
+        self.char_in_use.set_value(0)
+
+    def handle_timer(self, state: bool)  -> None:
+        """Update timer state."""
+        if state:
+            self.timer_instance.start()
+        else:
+            self.timer_instance.clear()
 
     @callback
     def async_update_state(self, new_state: State) -> None:
@@ -335,6 +330,8 @@ class ValveBase(HomeAccessory):
         self.char_active.set_value(current_state)
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
+        self.handle_timer(current_state)
+
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
