@@ -246,6 +246,7 @@ class ValveBase(HomeAccessory):
         self.off_service = off_service
 
         if  self.config.get(CONF_LINKED_TIMER):
+            _LOGGER.debug("A linked device is found")
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             timer_initial_seconds = 300
@@ -319,7 +320,7 @@ class ValveBase(HomeAccessory):
         """Update timer state."""
         if state:
             self.timer_instance.start()
-        else:
+        elif self.timer_instance is not None:
             self.timer_instance.clear()
 
     @callback
