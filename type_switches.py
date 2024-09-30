@@ -251,8 +251,8 @@ class ValveBase(HomeAccessory):
         self.off_service = off_service
 
         self.characteristics = []
-        self.linked_timer = self.config.get(CONF_LINKED_TIMER)
-        if self.linked_timer:
+        if self.config.get(CONF_LINKED_TIMER):
+            self.timer_instance = Timer({ CONF_DURATION: "00:01:00" })
             self.characteristics.extend([CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
         serv_valve = self.add_preload_service(SERV_VALVE, self.characteristics)
@@ -267,7 +267,7 @@ class ValveBase(HomeAccessory):
             value=VALVE_TYPE[valve_type].valve_type
         )
 
-        if self.linked_timer:
+        if self.timer_instance:
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=300,
@@ -293,14 +293,14 @@ class ValveBase(HomeAccessory):
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         config_duration = { CONF_DURATION: "00:05:12" }
-        _LOGGER.debug("%s: Set duration to 00:05:12", self.entity_id)
-        self.hass.states.get(self.linked_timer).async_update_config(config_duration)
+        _LOGGER.debug("%s: Set duration to 00:05:12", self.timer_instance)
+        self.timer_instance.async_update_config(config_duration)
 
     def get_remaining_duration(self) -> int:
         """Get remaining duration from Home Assistant."""
-        attribute_duration = self.hass.states.get(self.linked_timer).extra_state_attributes[ATTR_DURATION]
+        attribute_duration: str = self.timer_instance.extra_state_attributes.get(ATTR_DURATION)
         remaining_duration = int(attr_duration.split(":")[1]) * 60
-        _LOGGER.debug("Remaining duration for %s is %s", self.linked_timer, remaining_duration)
+        _LOGGER.debug("Remaining duration for %s is %s", self.timer_instance, remaining_duration)
         return remaining_duration
 
     @callback
