@@ -337,14 +337,18 @@ class ValveBase(HomeAccessory):
         if self.char_active.get_value():
             self.timer_instance.start()
 
+        self.char_set_duration.value = value
         self.char_set_duration.notify()
+        self.char_remaining_duration.value = value
         self.char_remaining_duration.notify()
 
     async def timer_end_callback(self) -> None:
         """Handle timer callback."""
-        _LOGGER.debug("Timer callback is raised")
-        self.char_active.set_value(0)
-        self.char_in_use.set_value(0)
+
+        self.char_active.value = 0
+        self.char_active.notify()
+        self.char_in_use.value = 0
+        self.char_in_use.notify()
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
