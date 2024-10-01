@@ -1,0 +1,21 @@
+Switch toggle:        
+    set duration
+
+!Set duration:
+!    set remaining
+
+!Set remaining:
+!    if timer is not none:
+!        clear timer
+
+!    create new timer
+!    start if toggle is on
+
+!    # notify duration
+!    # notify remaining
+
+!Get duration:
+!    timer.duration if timer is not None else 0
+
+!Get remaining:
+!    timer.remaining if timer is not None else 0

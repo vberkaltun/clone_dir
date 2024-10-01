@@ -248,18 +248,25 @@ class ValveBase(HomeAccessory):
 
         if  self.config.get(CONF_LINKED_TIMER):
 
-            _LOGGER.debug("A linked device is found")
             serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
-            self.timer_instance: IdleTimer | None = None
+            timer_initial_seconds = 300
+
+            self.timer_instance = IdleTimer(
+                self.hass,
+                timer_initial_seconds,
+                self.timer_end_callback)
 
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=60,
+                value=timer_initial_seconds,
+                getter_callback=self.get_duration,
                 setter_callback=self.set_duration,
             )
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
+                value=timer_initial_seconds,
                 getter_callback=self.get_remaining_duration,
+                setter_callback=self.set_remaining_duration,
             )
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
@@ -286,40 +293,8 @@ class ValveBase(HomeAccessory):
         _LOGGER.debug("%s: Set switch state to %s", self.entity_id, value)
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
-        self.handle_timer()
+        self.set_duration(self.timer_instance.timeout)
         self.async_call_service(self.domain, service, params)
-
-    def set_duration(self, value: int) -> None:
-        """Set duration if call came from HomeKit."""
-        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.handle_timer()
-
-    def get_remaining_duration(self) -> int:
-        """Get remaining duration from Home Assistant."""
-        remaining = self.timer_instance.remaining if self.timer_instance is not None else 0
-        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, remaining)
-        return remaining
-
-    async def timer_end_callback(self) -> None:
-        """Initialize a Valve accessory object."""
-        _LOGGER.debug("Timer callback is raised")
-        self.char_active.set_value(0)
-
-    def handle_timer(self)  -> None:
-        """Update timer state."""
-
-        if self.timer_instance is not None:
-            _LOGGER.debug("Timer cleared")
-            self.timer_instance.clear()
-
-        if self.char_active.get_value():
-            _LOGGER.debug("Timer started")
-
-            self.timer_instance = IdleTimer(
-                self.hass,
-                self.char_set_duration.get_value(),
-                self.timer_end_callback)
-            self.timer_instance.start()
 
     @callback
     def async_update_state(self, new_state: State) -> None:
@@ -330,6 +305,46 @@ class ValveBase(HomeAccessory):
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
 
+    def get_duration(self) -> None:
+        """Get duration from Home Assistant."""
+        _LOGGER.debug("Duration for %s is %s", self.entity_id, self.timer_instance.timeout)
+        return self.timer_instance.timeout
+
+    def set_duration(self, value: int) -> None:
+        """Set duration if call came from HomeKit."""
+        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
+        self.set_remaining_duration(value)
+
+    def get_remaining_duration(self) -> int:
+        """Get remaining duration from Home Assistant."""
+        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, self.timer_instance.remaining)
+        return self.timer_instance.remaining
+
+    def set_remaining_duration(self, value: int) -> None:
+        """Set remaining duration if call came from HomeKit."""
+        _LOGGER.debug("Remaining duration for %s is set to %s", self.entity_id, value)
+        self.update_timer_instance(value)
+
+    def update_timer_instance(self, value: int)  -> None:
+        """Update timer instance."""
+
+        self.timer_instance.clear()
+        self.timer_instance = IdleTimer(
+            self.hass,
+            value,
+            self.timer_end_callback)
+
+        if self.char_active.get_value():
+            self.timer_instance.start()
+
+        self.char_set_duration.notify()
+        self.char_remaining_duration.notify()
+
+    async def timer_end_callback(self) -> None:
+        """Handle timer callback."""
+        _LOGGER.debug("Timer callback is raised")
+        self.char_active.set_value(0)
+        self.char_in_use.set_value(0)
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
