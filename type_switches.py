@@ -318,20 +318,18 @@ class ValveBase(HomeAccessory):
     def run(self):
         """Simulate the running valve by counting down the remaining duration."""
 
-        if self.is_active is False:
-            return
-
-        while self.remaining_duration > 0:
+        if self.is_active and self.remaining_duration > 0:
             _LOGGER.debug("Updating remaining duration to %s...", self.remaining_duration)
             time.sleep(1)
             self.remaining_duration -= 1
             self.char_remaining_duration.set_value(self.remaining_duration)
 
         # Automatically turn off after duration ends
-        _LOGGER.debug("State for %s is %s", self.entity_id, 0)
-        self.is_active = False
-        self.char_active.set_value(0)
-        self.char_in_use.set_value(0)
+        if self.remaining_duration == 0:
+            _LOGGER.debug("State for %s is %s", self.entity_id, 0)
+            self.is_active = False
+            self.char_active.set_value(0)
+            self.char_in_use.set_value(0)
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
