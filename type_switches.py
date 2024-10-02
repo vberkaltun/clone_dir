@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from functools import partial
 import logging
+import time
 from typing import Any, Final, NamedTuple
 
+from pyhap.accessory import Accessory
 from pyhap.characteristic import Characteristic
 from pyhap.const import (
     CATEGORY_FAUCET,
@@ -247,42 +248,33 @@ class ValveBase(HomeAccessory):
         self.off_service = off_service
 
         if  self.config.get(CONF_LINKED_TIMER):
-
-            serv_valve = self.add_preload_service(SERV_VALVE, [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
-            timer_initial_seconds = 300
-
-            self.timer_instance = IdleTimer(
-                self.hass,
-                timer_initial_seconds,
-                self.timer_end_callback)
-
+            serv_valve = self.add_preload_service(
+                SERV_VALVE,
+                [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=timer_initial_seconds,
-                getter_callback=self.get_duration,
-                setter_callback=self.set_duration,
-            )
+                value=300,
+                setter_callback=self.set_duration)
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                value=timer_initial_seconds,
-                getter_callback=self.get_remaining_duration,
-                setter_callback=self.set_remaining_duration,
-            )
+                value=0)
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
 
         self.char_active = serv_valve.configure_char(
             CHAR_ACTIVE,
             value=False,
-            setter_callback=self.set_state
-        )
+            setter_callback=self.set_state)
         self.char_in_use = serv_valve.configure_char(
             CHAR_IN_USE,
             value=False)
         self.char_valve_type = serv_valve.configure_char(
             CHAR_VALVE_TYPE,
-            value=VALVE_TYPE[valve_type].valve_type
-        )
+            value=VALVE_TYPE[valve_type].valve_type)
+
+       # Default values
+        self.is_active = False
+        self.remaining_duration = 0
 
         # Set the state so it is in sync on initial
         # GET to avoid an event storm after homekit startup
@@ -293,8 +285,13 @@ class ValveBase(HomeAccessory):
         _LOGGER.debug("%s: Set switch state to %s", self.entity_id, value)
         params = {ATTR_ENTITY_ID: self.entity_id}
         service = self.on_service if value else self.off_service
-        self.set_duration(self.timer_instance.timeout)
         self.async_call_service(self.domain, service, params)
+        self.is_active = value
+
+    def set_duration(self, value: int) -> None:
+        """Set duration if call came from HomeKit."""
+        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
+        self.remaining_duration = value
 
     @callback
     def async_update_state(self, new_state: State) -> None:
@@ -305,50 +302,25 @@ class ValveBase(HomeAccessory):
         _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
 
-    def get_duration(self) -> None:
-        """Get duration from Home Assistant."""
-        _LOGGER.debug("Duration for %s is %s", self.entity_id, self.timer_instance.timeout)
-        return self.timer_instance.timeout
+    @Accessory.run_at_interval(3)
+    def run(self):
+        """Simulate the running valve by counting down the remaining duration."""
 
-    def set_duration(self, value: int) -> None:
-        """Set duration if call came from HomeKit."""
-        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.set_remaining_duration(value)
+        _LOGGER.debug("Timer is %s", self.is_active)
+        if self.is_active is False:
+            return
 
-    def get_remaining_duration(self) -> int:
-        """Get remaining duration from Home Assistant."""
-        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, self.timer_instance.remaining)
-        return self.timer_instance.remaining
+        while self.remaining_duration > 0:
+            _LOGGER.debug("Updating remaining duration to %s...", self.remaining_duration)
+            time.sleep(1)
+            self.remaining_duration -= 3
+            self.char_remaining_duration.set_value(self.remaining_duration)
 
-    def set_remaining_duration(self, value: int) -> None:
-        """Set remaining duration if call came from HomeKit."""
-        _LOGGER.debug("Remaining duration for %s is set to %s", self.entity_id, value)
-        self.update_timer_instance(value)
-
-    def update_timer_instance(self, value: int)  -> None:
-        """Update timer instance."""
-
-        self.timer_instance.clear()
-        self.timer_instance = IdleTimer(
-            self.hass,
-            value,
-            self.timer_end_callback)
-
-        if self.char_active.get_value():
-            self.timer_instance.start()
-
-        self.char_set_duration.value = value
-        self.char_set_duration.notify()
-        self.char_remaining_duration.value = value
-        self.char_remaining_duration.notify()
-
-    async def timer_end_callback(self) -> None:
-        """Handle timer callback."""
-
-        self.char_active.value = 0
-        self.char_active.notify()
-        self.char_in_use.value = 0
-        self.char_in_use.notify()
+        # Automatically turn off after duration ends
+        _LOGGER.debug("%s: Set valve state to %s", self.entity_id, 0)
+        self.char_active.set_value(0)
+        self.char_in_use.set_value(0)
+        self.is_active = False
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
