@@ -247,6 +247,7 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
+        self.is_reset = False
         self.is_active = False
         self.duration = 0
         self.remaining_duration = 0
@@ -283,6 +284,7 @@ class ValveBase(HomeAccessory):
     def set_active(self, value: bool) -> None:
         """Set active if call came from HomeKit."""
         _LOGGER.debug("Active for %s is set to %s", self.entity_id, value)
+        self.is_reset = True
         self.is_active = value
         self.char_active.set_value(value)
         self.char_in_use.set_value(value)
@@ -290,13 +292,18 @@ class ValveBase(HomeAccessory):
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
+        self.is_reset = True
         self.duration = value
         self.remaining_duration = value
-        self.char_remaining_duration.set_value(self.duration)
 
     @Accessory.run_at_interval(3)
     def run(self):
         """Simulate the running valve by counting down the remaining duration."""
+
+        if self.is_reset is True:
+            _LOGGER.debug("Resetting remaining duration for %s to %s...", self.entity_id, self.duration)
+            self.is_reset = False
+            self.char_remaining_duration.set_value(self.duration)
 
         if self.is_active is True and self.remaining_duration > 0:
             _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, self.remaining_duration)
