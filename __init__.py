@@ -42,6 +42,7 @@ ATTR_REMAINING = "remaining"
 ATTR_FINISHES_AT = "finishes_at"
 ATTR_RESTORE = "restore"
 ATTR_FINISHED_AT = "finished_at"
+ATTR_CONFIG = "config"
 
 CONF_DURATION = "duration"
 CONF_RESTORE = "restore"
@@ -62,6 +63,7 @@ SERVICE_PAUSE = "pause"
 SERVICE_CANCEL = "cancel"
 SERVICE_CHANGE = "change"
 SERVICE_FINISH = "finish"
+SERVICE_UPDATE = 'update'
 
 STORAGE_KEY = DOMAIN
 STORAGE_VERSION = 1
@@ -167,6 +169,11 @@ async def async_setup(hass: HomeAssistant, config: ConfigType) -> bool:
         {vol.Optional(ATTR_DURATION, default=DEFAULT_DURATION): cv.time_period},
         "async_change",
     )
+    component.async_register_entity_service(
+        SERVICE_UPDATE,
+        {vol.Required(ATTR_CONFIG): dict},
+        "async_update_config",
+    )
 
     return True
 
@@ -215,16 +222,6 @@ class Timer(collection.CollectionEntity, RestoreEntity):
 
         self._attr_should_poll = False
         self._attr_force_update = True
-        
-        self.editable = False
-
-    @classmethod
-    def from_hass(cls, config: ConfigType, hass: HomeAssistant) -> Self:
-        """Return entity instance initialized from storage."""
-        timer = cls(config)
-        timer.entity_id = ENTITY_ID_FORMAT.format("yetermk")
-        timer.hass = hass
-        return timer
 
     @classmethod
     def from_storage(cls, config: ConfigType) -> Self:

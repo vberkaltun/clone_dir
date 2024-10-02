@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import time
 from typing import Any, Final, NamedTuple
 
 from pyhap.accessory import Accessory
@@ -18,8 +17,20 @@ from pyhap.const import (
 
 from homeassistant.components import button, input_button
 from homeassistant.components.input_select import ATTR_OPTIONS, SERVICE_SELECT_OPTION
-from homeassistant.components.stream import IdleTimer
 from homeassistant.components.switch import DOMAIN
+from homeassistant.components.timer import (
+    ATTR_CONFIG,
+    ATTR_REMAINING,
+    CONF_DURATION,
+    DOMAIN as TIMER_DOMAIN,
+    SERVICE_CANCEL as TIMER_SERVICE_CANCEL,
+    SERVICE_START as TIMER_SERVICE_START,
+    SERVICE_UPDATE as TIMER_SERVICE_UPDATE,
+    STATUS_ACTIVE as TIMER_STATUS_ACTIVE,
+    STATUS_IDLE as TIMER_STATUS_IDLE,
+    STATUS_PAUSED as TIMER_STATUS_PAUSED,
+    Timer,
+)
 from homeassistant.components.vacuum import (
     DOMAIN as VACUUM_DOMAIN,
     SERVICE_RETURN_TO_BASE,
@@ -40,8 +51,16 @@ from homeassistant.const import (
     STATE_OPEN,
     STATE_OPENING,
 )
-from homeassistant.core import HomeAssistant, State, callback, split_entity_id
-from homeassistant.helpers.event import async_call_later
+from homeassistant.core import (
+    Event,
+    EventStateChangedData,
+    HassJobType,
+    HomeAssistant,
+    State,
+    callback,
+    split_entity_id,
+)
+from homeassistant.helpers.event import async_call_later, async_track_state_change_event
 
 from .accessories import TYPES, HomeAccessory, HomeDriver
 from .const import (
@@ -124,7 +143,6 @@ class Outlet(HomeAccessory):
         _LOGGER.debug("%s: Set current state to %s", self.entity_id, current_state)
         self.char_on.set_value(current_state)
 
-
 @TYPES.register("Switch")
 class Switch(HomeAccessory):
     """Generate a Switch accessory."""
@@ -192,7 +210,6 @@ class Switch(HomeAccessory):
         _LOGGER.debug("%s: Set current state to %s", self.entity_id, current_state)
         self.char_on.set_value(current_state)
 
-
 @TYPES.register("Vacuum")
 class Vacuum(Switch):
     """Generate a Switch accessory."""
@@ -247,32 +264,41 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
-        self.is_reset = False
-        self.is_active = False
-        self.duration = 300
-        self.remaining_duration = self.duration
+        self.timer_config = self.config.get(CONF_LINKED_TIMER)
+        self.timer_instance: Timer | None = None
 
-        if  self.config.get(CONF_LINKED_TIMER):
+        if self.timer_config:
             serv_valve = self.add_preload_service(
                 SERV_VALVE,
                 [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
+
+            self.timer_instance = self.hass.states.get(self.timer_config)
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.timer_config],
+                    self.reset_switch_state,
+                    job_type=HassJobType.Callback,
+                )
+            )
+
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=self.duration,
+                value=300,
                 setter_callback=self.set_duration)
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                value=self.remaining_duration)
+                value=300)
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
 
         self.char_active = serv_valve.configure_char(
             CHAR_ACTIVE,
-            value=self.is_active,
+            value=False,
             setter_callback=self.set_active)
         self.char_in_use = serv_valve.configure_char(
             CHAR_IN_USE,
-            value=self.is_active)
+            value=False)
         self.char_valve_type = serv_valve.configure_char(
             CHAR_VALVE_TYPE,
             value=VALVE_TYPE[valve_type].valve_type)
@@ -286,29 +312,75 @@ class ValveBase(HomeAccessory):
         _LOGGER.debug("Active for %s is set to %s", self.entity_id, value)
         self.char_active.set_value(value)
         self.char_in_use.set_value(value)
-        self.is_active = value
-        self.remaining_duration = self.duration
+        self.update_timer_state(value)
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.duration = value
-        self.remaining_duration = value
+        self.update_timer_config(value)
+
+    def update_timer_state(self, value: bool) -> None:
+        """Update timer state."""
+
+        if self.timer_instance is None:
+            return
+
+        if self.timer_instance.state is TIMER_STATUS_ACTIVE or TIMER_STATUS_PAUSED:
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    TIMER_DOMAIN,
+                    TIMER_SERVICE_CANCEL,
+                    { ATTR_ENTITY_ID: self.timer_config }))
+
+        if value == 1:
+            self.hass.async_create_task(
+                self.hass.services.async_call(
+                    TIMER_DOMAIN,
+                    TIMER_SERVICE_START,
+                    { ATTR_ENTITY_ID: self.timer_config }))
+
+    def update_timer_config(self, value: int) -> None:
+        """Update timer config."""
+
+        if self.timer_instance is None:
+            return
+
+        hours, remainder = divmod(value, 3600)
+        minutes, seconds = divmod(remainder, 60)
+        duration = f"{int(hours):02}:{int(minutes):02}:{int(seconds):02}"
+
+        _LOGGER.debug("Updating duration for %s to %s...", self.timer_config, value)
+        self.hass.async_create_task(
+            self.hass.services.async_call(
+                TIMER_DOMAIN,
+                TIMER_SERVICE_UPDATE,
+                { ATTR_ENTITY_ID: self.timer_config,
+                  ATTR_CONFIG: { CONF_DURATION: duration }}))
 
     @Accessory.run_at_interval(3)
     def run(self):
-        """Simulate the running valve by counting down the remaining duration."""
+        """Simulate the running timer."""
 
-        if self.is_active == 1 and self.remaining_duration > 0:
-            _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, self.remaining_duration)
-            self.char_remaining_duration.set_value(self.remaining_duration)
-            self.remaining_duration -= 3
+        if self.timer_instance is None:
+            return
 
-        if self.is_active == 1 and self.remaining_duration == 0:
-            _LOGGER.debug("Updating active for %s to %s...", self.entity_id, 0)
+        if self.char_active.value == 1 and self.timer_instance.state is TIMER_STATUS_ACTIVE:
+            timedelta = self.timer_instance.attributes.get(ATTR_REMAINING, 0)
+            hours, minutes, seconds = map(int, timedelta.split(":"))
+            duration = (hours * 3600) + (minutes * 60) + seconds
+
+            _LOGGER.debug("Updating remaining duration for %s to %s...", self.timer_config, duration)
+            self.char_remaining_duration.set_value(duration)
+
+        super().run()
+
+    @callback
+    def reset_switch_state(self, event: Event[EventStateChangedData]) -> None:
+        """Reset switch state."""
+        _LOGGER.debug("Resetting active and in-use for %s to %s...", self.entity_id, 0)
+        if self.timer_instance.state is TIMER_STATUS_IDLE:
             self.char_active.set_value(0)
             self.char_in_use.set_value(0)
-            self.is_active = False
 
     @callback
     def async_update_state(self, new_state: State) -> None:
@@ -318,6 +390,10 @@ class ValveBase(HomeAccessory):
         self.char_active.set_value(current_state)
         _LOGGER.debug("%s: Set in-use state to %s", self.entity_id, current_state)
         self.char_in_use.set_value(current_state)
+        _LOGGER.debug("%s: Set timer state state to %s", self.entity_id, False)
+        self.update_timer_state(False)
+        _LOGGER.debug("%s: Set timer duration state to %s", self.entity_id, 300)
+        self.update_timer_config(300)
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
