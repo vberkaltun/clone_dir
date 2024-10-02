@@ -247,6 +247,10 @@ class ValveBase(HomeAccessory):
         self.on_service = on_service
         self.off_service = off_service
 
+        self.is_active = False
+        self.duration = 0
+        self.remaining_duration = 0
+
         if  self.config.get(CONF_LINKED_TIMER):
             serv_valve = self.add_preload_service(
                 SERV_VALVE,
@@ -279,35 +283,30 @@ class ValveBase(HomeAccessory):
     def set_active(self, value: bool) -> None:
         """Set active if call came from HomeKit."""
         _LOGGER.debug("Active for %s is set to %s", self.entity_id, value)
+        self.is_active = value
+        self.char_active.set_value(value)
         self.char_in_use.set_value(value)
-        self.reset_remaining_duration(self.char_set_duration.value)
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.reset_remaining_duration(self.char_set_duration.value)
-
-    def reset_remaining_duration(self, value: int) -> None:
-        """Reset remaining duration to default duration."""
-        _LOGGER.debug("Remaining duration for %s is reset to %s", self.entity_id, value)
-        self.char_remaining_duration.set_value(value)
+        self.duration = value
+        self.remaining_duration = value
+        self.char_remaining_duration.set_value(self.duration)
 
     @Accessory.run_at_interval(3)
     def run(self):
         """Simulate the running valve by counting down the remaining duration."""
 
-        current_remaining_duration = self.char_remaining_duration.value
-        _LOGGER.debug("Current for %s to %s...", self.entity_id, current_remaining_duration)
+        if self.is_active is True and self.remaining_duration > 0:
+            _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, self.remaining_duration)
+            self.remaining_duration -= 3
 
-        if self.char_active.value is True and current_remaining_duration > 0:
-            _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, current_remaining_duration)
-            self.char_remaining_duration.set_value(current_remaining_duration)
-            time.sleep(1)
-            current_remaining_duration -= 3
-
-        if self.char_active.value is True and current_remaining_duration == 0:
+        if self.is_active is True and self.remaining_duration == 0:
             _LOGGER.debug("Updating active for %s to %s...", self.entity_id, 0)
+            self.is_active = False
             self.char_active.set_value(0)
+            self.char_in_use.set_value(0)
 
     @callback
     def async_update_state(self, new_state: State) -> None:
