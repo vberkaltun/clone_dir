@@ -253,18 +253,18 @@ class ValveBase(HomeAccessory):
                 [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                setter_callback=self.set_duration,
-                getter_callback=self.get_duration)
+                value=300,
+                setter_callback=self.set_duration)
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                getter_callback=self.get_remaining_duration)
+                value=300)
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
 
         self.char_active = serv_valve.configure_char(
             CHAR_ACTIVE,
             value=False,
-            setter_callback=self.set_state)
+            setter_callback=self.set_active)
         self.char_in_use = serv_valve.configure_char(
             CHAR_IN_USE,
             value=False)
@@ -272,64 +272,51 @@ class ValveBase(HomeAccessory):
             CHAR_VALVE_TYPE,
             value=VALVE_TYPE[valve_type].valve_type)
 
-       # Default values
-        self.is_active = False
-        self.duration = 300
-        self.remaining_duration = self.duration
-
         # Set the state so it is in sync on initial
         # GET to avoid an event storm after homekit startup
         self.async_update_state(state)
 
-    def set_state(self, value: bool) -> None:
-        """Set state if call came from HomeKit."""
-        _LOGGER.debug("State for %s is %s", self.entity_id, value)
-        self.is_active = value
-        self.char_active.set_value(value)
+    def set_active(self, value: bool) -> None:
+        """Set active if call came from HomeKit."""
+        _LOGGER.debug("Active for %s is set to %s", self.entity_id, value)
         self.char_in_use.set_value(value)
-        self.char_set_duration.set_value(self.duration)
+        self.reset_remaining_duration(self.char_set_duration.value)
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.duration = value
-        self.remaining_duration = value
+        self.reset_remaining_duration(self.char_set_duration.value)
 
-    def get_duration(self) -> None:
-        """Get duration from Home Assistant."""
-        _LOGGER.debug("Duration for %s is %s", self.entity_id, self.duration)
-        return self.duration
+    def reset_remaining_duration(self, value: int) -> None:
+        """Reset remaining duration to default duration."""
+        _LOGGER.debug("Remaining duration for %s is reset to %s", self.entity_id, value)
+        self.char_remaining_duration.set_value(value)
 
-    def get_remaining_duration(self) -> int:
-        """Get remaining duration from Home Assistant."""
-        _LOGGER.debug("Remaining duration for %s is %s", self.entity_id, self.remaining_duration)
-        return self.remaining_duration
-
-    @callback
-    def async_update_state(self, new_state: State) -> None:
-        """Update switch state after state changed."""
-        current_state = 1 if new_state.state in self.open_states else 0
-        _LOGGER.debug("%s: Set active state to %s", self.entity_id, current_state)
-        self.char_active.set_value(current_state)
-        _LOGGER.debug("%s: Set in_use state to %s", self.entity_id, current_state)
-        self.char_in_use.set_value(current_state)
-
-    @Accessory.run_at_interval(1)
+    @Accessory.run_at_interval(3)
     def run(self):
         """Simulate the running valve by counting down the remaining duration."""
 
-        if self.is_active and self.remaining_duration > 0:
-            _LOGGER.debug("Updating remaining duration to %s...", self.remaining_duration)
-            time.sleep(1)
-            self.remaining_duration -= 1
-            self.char_remaining_duration.set_value(self.remaining_duration)
+        current_remaining_duration = self.char_remaining_duration.value
+        _LOGGER.debug("Current for %s to %s...", self.entity_id, current_remaining_duration)
 
-        # Automatically turn off after duration ends
-        if self.remaining_duration == 0:
-            _LOGGER.debug("State for %s is %s", self.entity_id, 0)
-            self.is_active = False
+        if self.char_active.value is True and current_remaining_duration > 0:
+            _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, current_remaining_duration)
+            self.char_remaining_duration.set_value(current_remaining_duration)
+            time.sleep(1)
+            current_remaining_duration -= 3
+
+        if self.char_active.value is True and current_remaining_duration == 0:
+            _LOGGER.debug("Updating active for %s to %s...", self.entity_id, 0)
             self.char_active.set_value(0)
-            self.char_in_use.set_value(0)
+
+    @callback
+    def async_update_state(self, new_state: State) -> None:
+        """Handle state change to update HomeKit value."""
+        current_state = 1 if new_state.state in self.open_states else 0
+        _LOGGER.debug("%s: Set active state to %s", self.entity_id, current_state)
+        self.char_active.set_value(current_state)
+        _LOGGER.debug("%s: Set in-use state to %s", self.entity_id, current_state)
+        self.char_in_use.set_value(current_state)
 
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
