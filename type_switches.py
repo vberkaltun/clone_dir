@@ -249,8 +249,8 @@ class ValveBase(HomeAccessory):
 
         self.is_reset = False
         self.is_active = False
-        self.duration = 0
-        self.remaining_duration = 0
+        self.duration = 300
+        self.remaining_duration = self.duration
 
         if  self.config.get(CONF_LINKED_TIMER):
             serv_valve = self.add_preload_service(
@@ -258,21 +258,21 @@ class ValveBase(HomeAccessory):
                 [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
-                value=300,
+                value=self.duration,
                 setter_callback=self.set_duration)
             self.char_remaining_duration = serv_valve.configure_char(
                 CHAR_REMAINING_DURATION,
-                value=300)
+                value=self.remaining_duration)
         else:
             serv_valve = self.add_preload_service(SERV_VALVE)
 
         self.char_active = serv_valve.configure_char(
             CHAR_ACTIVE,
-            value=False,
+            value=self.is_active,
             setter_callback=self.set_active)
         self.char_in_use = serv_valve.configure_char(
             CHAR_IN_USE,
-            value=False)
+            value=self.is_active)
         self.char_valve_type = serv_valve.configure_char(
             CHAR_VALVE_TYPE,
             value=VALVE_TYPE[valve_type].valve_type)
@@ -284,15 +284,14 @@ class ValveBase(HomeAccessory):
     def set_active(self, value: bool) -> None:
         """Set active if call came from HomeKit."""
         _LOGGER.debug("Active for %s is set to %s", self.entity_id, value)
-        self.is_reset = True
-        self.is_active = value
         self.char_active.set_value(value)
         self.char_in_use.set_value(value)
+        self.is_active = value
+        self.remaining_duration = self.duration
 
     def set_duration(self, value: int) -> None:
         """Set duration if call came from HomeKit."""
         _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
-        self.is_reset = True
         self.duration = value
         self.remaining_duration = value
 
@@ -300,20 +299,16 @@ class ValveBase(HomeAccessory):
     def run(self):
         """Simulate the running valve by counting down the remaining duration."""
 
-        if self.is_reset is True:
-            _LOGGER.debug("Resetting remaining duration for %s to %s...", self.entity_id, self.duration)
-            self.is_reset = False
-            self.char_remaining_duration.set_value(self.duration)
-
-        if self.is_active is True and self.remaining_duration > 0:
+        if self.is_active == 1 and self.remaining_duration > 0:
             _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, self.remaining_duration)
+            self.char_remaining_duration.set_value(self.remaining_duration)
             self.remaining_duration -= 3
 
-        if self.is_active is True and self.remaining_duration == 0:
+        if self.is_active == 1 and self.remaining_duration == 0:
             _LOGGER.debug("Updating active for %s to %s...", self.entity_id, 0)
-            self.is_active = False
             self.char_active.set_value(0)
             self.char_in_use.set_value(0)
+            self.is_active = False
 
     @callback
     def async_update_state(self, new_state: State) -> None:
