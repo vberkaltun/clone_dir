@@ -265,6 +265,7 @@ class ValveBase(HomeAccessory):
 
         self.timer_config = self.config.get(CONF_LINKED_TIMER)
         self.timer_instance: Timer | None = None
+        self.is_started = False
 
         if self.timer_config:
             serv_valve = self.add_preload_service(
@@ -272,7 +273,13 @@ class ValveBase(HomeAccessory):
                 [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             self.timer_instance = self.hass.states.get(self.timer_config)
-
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.timer_config],
+                    self.reset_switch_state,
+                    job_type=HassJobType.Callback))
+            
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
                 value=300,
@@ -322,6 +329,7 @@ class ValveBase(HomeAccessory):
                     TIMER_DOMAIN,
                     TIMER_SERVICE_CANCEL,
                     { ATTR_ENTITY_ID: self.timer_config }))
+            self.is_started = False
 
         if value == 1:
             self.hass.async_create_task(
@@ -329,18 +337,10 @@ class ValveBase(HomeAccessory):
                     TIMER_DOMAIN,
                     TIMER_SERVICE_START,
                     { ATTR_ENTITY_ID: self.timer_config }))
-            self._subscriptions.append(
-                async_track_state_change_event(
-                    self.hass,
-                    [self.timer_config],
-                    self.reset_switch_state,
-                    job_type=HassJobType.Callback))
+            self.is_started = True
 
     def update_timer_config(self, value: int) -> None:
         """Update timer config."""
-
-        if self.timer_instance is None:
-            return
 
         hours, remainder = divmod(value, 3600)
         minutes, seconds = divmod(remainder, 60)
@@ -358,9 +358,10 @@ class ValveBase(HomeAccessory):
     def reset_switch_state(self, event: Event[EventStateChangedData]) -> None:
         """Reset switch state."""
         _LOGGER.debug("Resetting active and in-use for %s to %s...", self.entity_id, 0)
-        if self.timer_instance.state is TIMER_STATUS_IDLE:
-            self.char_active.set_value(0)
-            self.char_in_use.set_value(0)
+        if self.is_started is True or 1:
+            self.char_active.set_value(0, True)
+            self.char_in_use.set_value(0, True)
+            self.is_started = False
 
     @callback
     def async_update_state(self, new_state: State) -> None:
