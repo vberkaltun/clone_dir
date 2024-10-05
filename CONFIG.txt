@@ -1,0 +1,33 @@
+# Loads default set of integrations. Do not remove.
+default_config:
+
+# Alternative option to the setup above.
+# backup:
+# config:
+# dhcp:
+# cloud:
+# image_upload:
+# logbook:
+# ssdp:
+# stream:
+# zeroconf:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+homekit:
+  - name: HASS Bridge 2
+    filter:
+      include_entities:
+        - switch.airco
+
+    entity_config:
+      switch.airco:
+        name: Airco
+        type: sprinkler
+        linked_timer: timer.hello

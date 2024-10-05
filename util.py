@@ -17,11 +17,10 @@ import voluptuous as vol
 
 from homeassistant.components import (
     binary_sensor,
-    input_number,
-    timer,
     media_player,
     persistent_notification,
     sensor,
+    timer,
 )
 from homeassistant.components.camera import DOMAIN as CAMERA_DOMAIN
 from homeassistant.components.event import DOMAIN as EVENT_DOMAIN
