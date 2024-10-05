@@ -5,7 +5,6 @@ from __future__ import annotations
 import logging
 from typing import Any, Final, NamedTuple
 
-from pyhap.accessory import Accessory
 from pyhap.characteristic import Characteristic
 from pyhap.const import (
     CATEGORY_FAUCET,
@@ -20,7 +19,6 @@ from homeassistant.components.input_select import ATTR_OPTIONS, SERVICE_SELECT_O
 from homeassistant.components.switch import DOMAIN
 from homeassistant.components.timer import (
     ATTR_CONFIG,
-    ATTR_REMAINING,
     CONF_DURATION,
     DOMAIN as TIMER_DOMAIN,
     SERVICE_CANCEL as TIMER_SERVICE_CANCEL,
@@ -273,14 +271,6 @@ class ValveBase(HomeAccessory):
                 [CHAR_SET_DURATION, CHAR_REMAINING_DURATION])
 
             self.timer_instance = self.hass.states.get(self.timer_config)
-            self._subscriptions.append(
-                async_track_state_change_event(
-                    self.hass,
-                    [self.timer_config],
-                    self.reset_switch_state,
-                    job_type=HassJobType.Callback,
-                )
-            )
 
             self.char_set_duration = serv_valve.configure_char(
                 CHAR_SET_DURATION,
@@ -357,31 +347,6 @@ class ValveBase(HomeAccessory):
                 { ATTR_ENTITY_ID: self.timer_config,
                   ATTR_CONFIG: { CONF_DURATION: duration }}))
 
-    @Accessory.run_at_interval(3)
-    def run(self):
-        """Simulate the running timer."""
-
-        if self.timer_instance is None:
-            return
-
-        if self.char_active.value == 1 and self.timer_instance.state is TIMER_STATUS_ACTIVE:
-            timedelta = self.timer_instance.attributes.get(ATTR_REMAINING, 0)
-            hours, minutes, seconds = map(int, timedelta.split(":"))
-            duration = (hours * 3600) + (minutes * 60) + seconds
-
-            _LOGGER.debug("Updating remaining duration for %s to %s...", self.timer_config, duration)
-            self.char_remaining_duration.set_value(duration)
-
-        super().run()
-
-    @callback
-    def reset_switch_state(self, event: Event[EventStateChangedData]) -> None:
-        """Reset switch state."""
-        _LOGGER.debug("Resetting active and in-use for %s to %s...", self.entity_id, 0)
-        if self.timer_instance.state is TIMER_STATUS_IDLE:
-            self.char_active.set_value(0)
-            self.char_in_use.set_value(0)
-
     @callback
     def async_update_state(self, new_state: State) -> None:
         """Handle state change to update HomeKit value."""
@@ -394,7 +359,7 @@ class ValveBase(HomeAccessory):
         self.update_timer_state(False)
         _LOGGER.debug("%s: Set timer duration state to %s", self.entity_id, 300)
         self.update_timer_config(300)
-
+        
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
     """Generate a Valve accessory from a HomeAssistant switch."""
