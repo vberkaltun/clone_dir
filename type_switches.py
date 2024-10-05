@@ -13,6 +13,7 @@ from pyhap.const import (
     CATEGORY_SPRINKLER,
     CATEGORY_SWITCH,
 )
+from pyhap.util import callback as pyhap_callback
 
 from homeassistant.components import button, input_button
 from homeassistant.components.input_select import ATTR_OPTIONS, SERVICE_SELECT_OPTION
@@ -328,6 +329,12 @@ class ValveBase(HomeAccessory):
                     TIMER_DOMAIN,
                     TIMER_SERVICE_START,
                     { ATTR_ENTITY_ID: self.timer_config }))
+            self._subscriptions.append(
+                async_track_state_change_event(
+                    self.hass,
+                    [self.timer_config],
+                    self.reset_switch_state,
+                    job_type=HassJobType.Callback))
 
     def update_timer_config(self, value: int) -> None:
         """Update timer config."""
@@ -348,6 +355,14 @@ class ValveBase(HomeAccessory):
                   ATTR_CONFIG: { CONF_DURATION: duration }}))
 
     @callback
+    def reset_switch_state(self, event: Event[EventStateChangedData]) -> None:
+        """Reset switch state."""
+        _LOGGER.debug("Resetting active and in-use for %s to %s...", self.entity_id, 0)
+        if self.timer_instance.state is TIMER_STATUS_IDLE:
+            self.char_active.set_value(0)
+            self.char_in_use.set_value(0)
+
+    @callback
     def async_update_state(self, new_state: State) -> None:
         """Handle state change to update HomeKit value."""
         current_state = 1 if new_state.state in self.open_states else 0
@@ -359,7 +374,7 @@ class ValveBase(HomeAccessory):
         self.update_timer_state(False)
         _LOGGER.debug("%s: Set timer duration state to %s", self.entity_id, 300)
         self.update_timer_config(300)
-        
+
 @TYPES.register("ValveSwitch")
 class ValveSwitch(ValveBase):
     """Generate a Valve accessory from a HomeAssistant switch."""
