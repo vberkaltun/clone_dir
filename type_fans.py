@@ -3,6 +3,7 @@
 import logging
 from typing import Any
 
+from pyhap.accessory import Accessory
 from pyhap.const import CATEGORY_FAN
 
 from homeassistant.components.fan import (
@@ -36,8 +37,10 @@ from .const import (
     CHAR_ACTIVE,
     CHAR_NAME,
     CHAR_ON,
+    CHAR_REMAINING_DURATION,
     CHAR_ROTATION_DIRECTION,
     CHAR_ROTATION_SPEED,
+    CHAR_SET_DURATION,
     CHAR_SWING_MODE,
     CHAR_TARGET_FAN_STATE,
     PROP_MIN_STEP,
@@ -82,6 +85,13 @@ class Fan(HomeAccessory):
         if self.preset_modes and len(self.preset_modes) == 1:
             self.chars.append(CHAR_TARGET_FAN_STATE)
 
+        self.chars.append(CHAR_SET_DURATION)
+        self.chars.append(CHAR_REMAINING_DURATION)
+        self.is_reset = False
+        self.is_active = False
+        self.duration = 300
+        self.remaining_duration = self.duration
+
         serv_fan = self.add_preload_service(SERV_FANV2, self.chars)
         self.set_primary_service(serv_fan)
         self.char_active = serv_fan.configure_char(CHAR_ACTIVE, value=0)
@@ -91,6 +101,14 @@ class Fan(HomeAccessory):
         self.char_swing = None
         self.char_target_fan_state = None
         self.preset_mode_chars = {}
+
+        self.char_set_duration = serv_fan.configure_char(
+            CHAR_SET_DURATION,
+            value=self.duration,
+            setter_callback=self.set_duration)
+        self.char_remaining_duration = serv_fan.configure_char(
+            CHAR_REMAINING_DURATION,
+            value=self.remaining_duration)
 
         if CHAR_ROTATION_DIRECTION in self.chars:
             self.char_direction = serv_fan.configure_char(
@@ -225,6 +243,26 @@ class Fan(HomeAccessory):
         params = {ATTR_ENTITY_ID: self.entity_id, ATTR_PERCENTAGE: value}
         self.async_call_service(FAN_DOMAIN, SERVICE_SET_PERCENTAGE, params, value)
 
+    def set_duration(self, value: int) -> None:
+        """Set duration if call came from HomeKit."""
+        _LOGGER.debug("Duration for %s is set to %s", self.entity_id, value)
+        self.duration = value
+        self.remaining_duration = value
+
+    @Accessory.run_at_interval(3)
+    def run(self):
+        """Simulate the running valve by counting down the remaining duration."""
+
+        if self.is_active == 1 and self.remaining_duration > 0:
+            _LOGGER.debug("Updating remaining duration for %s to %s...", self.entity_id, self.remaining_duration)
+            self.char_remaining_duration.set_value(self.remaining_duration)
+            self.remaining_duration -= 3
+
+        if self.is_active == 1 and self.remaining_duration == 0:
+            _LOGGER.debug("Updating active for %s to %s...", self.entity_id, 0)
+            self.char_active.set_value(0)
+            self.is_active = False
+
     @callback
     def async_update_state(self, new_state: State) -> None:
         """Update fan after state change."""
@@ -234,6 +272,8 @@ class Fan(HomeAccessory):
         if state in (STATE_ON, STATE_OFF):
             self._state = 1 if state == STATE_ON else 0
             self.char_active.set_value(self._state)
+            self.is_active = self._state
+            self.remaining_duration = self.duration
 
         # Handle Direction
         if self.char_direction is not None:
