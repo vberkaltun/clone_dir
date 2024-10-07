@@ -1,0 +1,58 @@
+# Loads default set of integrations. Do not remove.
+#default_config:
+
+assist_pipeline:
+backup:
+#bluetooth:
+config:
+#conversation:
+dhcp:
+#energy:
+#history:
+homeassistant_alerts:
+cloud:
+#image_upload:
+logbook:
+#media_source:
+mobile_app:
+#my:
+ssdp:
+#stream:
+#sun:
+#usb:
+#webhook:
+zeroconf:
+
+# Load frontend themes from the themes folder
+frontend:
+  themes: !include_dir_merge_named themes
+
+automation: !include automations.yaml
+script: !include scripts.yaml
+scene: !include scenes.yaml
+
+homekit:
+  - name: HASS Bridge 2
+    filter:
+      include_entities:
+        - switch.basit_switch
+
+    entity_config:
+      switch.basit_switch:
+        name: Airco
+        type: sprinkler
+        linked_timer: timer.hello
+
+switch:
+  - platform: template
+    switches:
+      basit_switch:
+        friendly_name: Airco
+        turn_on:
+          action: switch.turn_on
+          target:
+            entity_id: switch.basit_switch
+        turn_off:
+          action: switch.turn_off
+          target:
+            entity_id: switch.basit_switch
